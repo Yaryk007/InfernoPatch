@@ -71,12 +71,6 @@ jobs:
           git clone --depth 1 -b "$EMULATOR_REF" \
             https://github.com/Yaryk007/Inferno.git inferno-src
 
-      - name: Clone InfernoFSPatcher
-        run: |
-          # build.sh compiles ChefKiss's filesystem patcher for the restore
-          # ramdisk and stops without it.
-          git clone --depth 1 https://git.chefkiss.dev/AppleHax/InfernoFSPatcher.git tools/InfernoFSPatcher
-
       - name: Meson cross-file
         run: PREFIX="$PREFIX" ./make-cross-file.sh
 
@@ -99,6 +93,8 @@ jobs:
           # build.sh probes actool itself and falls back to the flat
           # Assets.xcassets icon when Inferno.icon (Xcode 26+) isn't supported.
           INFERNO_KEYMAPS: /opt/homebrew/share/qemu/keymaps
+          # ChefKiss's filesystem patcher (AGPL-3.0), vendored unmodified:
+          # git.chefkiss.dev answers GitHub's runners with 403.
           INFERNO_FS_PATCHER_SRC: ${{ github.workspace }}/tools/InfernoFSPatcher
         run: ./build.sh
 
