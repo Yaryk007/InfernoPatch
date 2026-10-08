@@ -43,7 +43,9 @@ cmake      = 'cmake'
 c_args        = [$FLAGS, '-I$PREFIX/include']
 c_link_args   = [$FLAGS, '-L$PREFIX/lib', '-framework', 'CoreFoundation', '-lucontext']
 cpp_args      = [$FLAGS]
-cpp_link_args = [$FLAGS]
+# libyuv is C++, so meson links the emulator library with the C++ linker,
+# and only these args reach that link: same set as for C.
+cpp_link_args = [$FLAGS, '-L$PREFIX/lib', '-framework', 'CoreFoundation', '-lucontext']
 objc_args     = [$FLAGS]
 # Needed as soon as one Objective-C file joins a target: meson then links
 # that target with the Objective-C linker, and an empty list here means
