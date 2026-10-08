@@ -10,11 +10,11 @@
         <string>ru</string>
     </array>
     <key>CFBundleDisplayName</key>
-    <string>Inferno</string>
+    <string>InfernoPatch</string>
     <key>CFBundleExecutable</key>
     <string>Inferno</string>
     <key>CFBundleIdentifier</key>
-    <string>com.makr.inferno</string>
+    <string>com.infernopatch.app</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundleName</key>

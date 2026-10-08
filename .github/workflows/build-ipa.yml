@@ -1,4 +1,4 @@
-name: Build Inferno.ipa
+name: Build InfernoPatch.ipa
 
 # Builds an unsigned Inferno.ipa on a GitHub runner, so nobody needs their own
 # Mac. The .ipa is attached to the run as an artifact.
@@ -11,10 +11,12 @@ name: Build Inferno.ipa
 # yours to build by ChefKiss's guide (see README).
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       emulator_ref:
-        description: "Branch/tag of the emulator fork (MakrSas/Inferno)"
+        description: "Branch/tag of the emulator fork (Yaryk007/Inferno)"
         default: "ios"
 
 concurrency:
@@ -64,8 +66,16 @@ jobs:
 
       - name: Clone the emulator fork
         run: |
+          # InfernoPatch: Yaryk007/Inferno is MakrSas/Inferno plus the iOS 26
+          # JIT region handoff in tcg/region.c.
           git clone --depth 1 -b "$EMULATOR_REF" \
-            https://github.com/MakrSas/Inferno.git inferno-src
+            https://github.com/Yaryk007/Inferno.git inferno-src
+
+      - name: Clone InfernoFSPatcher
+        run: |
+          # build.sh compiles ChefKiss's filesystem patcher for the restore
+          # ramdisk and stops without it.
+          git clone --depth 1 https://git.chefkiss.dev/AppleHax/InfernoFSPatcher.git tools/InfernoFSPatcher
 
       - name: Meson cross-file
         run: PREFIX="$PREFIX" ./make-cross-file.sh
@@ -89,11 +99,12 @@ jobs:
           # build.sh probes actool itself and falls back to the flat
           # Assets.xcassets icon when Inferno.icon (Xcode 26+) isn't supported.
           INFERNO_KEYMAPS: /opt/homebrew/share/qemu/keymaps
+          INFERNO_FS_PATCHER_SRC: ${{ github.workspace }}/tools/InfernoFSPatcher
         run: ./build.sh
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Inferno-ipa
+          name: InfernoPatch-ipa
           path: app/Inferno.ipa
           if-no-files-found: error

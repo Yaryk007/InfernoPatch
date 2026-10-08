@@ -84,16 +84,24 @@ enum BuildInfo {
     static let stamp = "$STAMP"
 }
 EOF
+# InfernoPatch: the iOS 26 JIT region (brk calls to StikDebug), in C because
+# Swift has no inline assembly. JIT.swift reaches it by @_silgen_name.
+mkdir -p "$BUILD/native"
+xcrun --sdk iphoneos clang -target "$TARGET" -isysroot "$SDK" -O2 \
+    -c "$ROOT/Native/jit26.c" -o "$BUILD/native/jit26.o"
 xcrun --sdk iphoneos swiftc \
     -target "$TARGET" \
     -sdk "$SDK" \
     -O -wmo \
     -parse-as-library \
     -o "$APP/Inferno" \
-    "$ROOT"/Sources/*.swift
+    "$ROOT"/Sources/*.swift \
+    "$BUILD/native/jit26.o"
 
 echo "==> Сборка бандла"
 cp "$ROOT/Resources/Info.plist" "$APP/Info.plist"
+# The StikDebug script the app sends inline when it relaunches itself.
+cp "$ROOT/Resources/inferno-jit.js" "$APP/inferno-jit.js"
 cp "$DYLIB" "$APP/Frameworks/"
 # The library finds the framework through @loader_path, so beside it.
 if [ -n "$HVF" ]; then cp -R "$HYPERVISOR" "$APP/Frameworks/"; fi

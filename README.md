@@ -1,4 +1,19 @@
-# Inferno for iPhone
+# InfernoPatch
+
+> **InfernoPatch** is a fork of [MakrSas/Inferno-iOS](https://github.com/MakrSas/Inferno-iOS) that fixes JIT on
+> iOS 26. The emulator side lives in [Yaryk007/Inferno](https://github.com/Yaryk007/Inferno) (branch `ios`).
+>
+> - **The JIT region is claimed at launch**, while StikDebug's attach is fresh, rather than from inside `qemu_init`
+>   when the machine starts. By then iOS has often suspended StikDebug, and a breakpoint sent to a suspended debugger
+>   froze the app with nothing in the log.
+> - **StikDebug is detached as soon as the region is held.** The pages stay executable, and no later signal or fault
+>   can stall on a debugger that is no longer running.
+> - **Either script works.** `legacy.js` (as below) or the universal protocol. The app also ships `inferno-jit.js`,
+>   and *Settings → Diagnostics → Launch through StikDebug* relaunches it with that script inline, so nothing has to be
+>   assigned first.
+> - Bundle id `com.infernopatch.app`, so it installs next to the original. CI builds the IPA on every push to `main`
+>   (artifact `InfernoPatch-ipa`).
+
 
 An emulated iPhone 11, running as an app on a real iPhone.
 

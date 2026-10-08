@@ -1,5 +1,8 @@
 import Foundation
 import Darwin
+#if os(iOS)
+import UIKit
+#endif
 
 /// Makes the process able to allocate executable memory.
 ///
@@ -177,6 +180,45 @@ enum JIT {
     @discardableResult
     static func prepare() -> Availability {
         let previous = status
+        defer {
+            if status != previous {
+                switch status {
+                case .available(let how):    LogCapture.shared.note(L("JIT: доступен (%@)", how))
+                case .unavailable(let why):  LogCapture.shared.note(L("JIT: НЕДОСТУПЕН — %@", why))
+                }
+            }
+        }
+
+        #if os(iOS)
+        // InfernoPatch: on iOS 26 the region is claimed here, at launch, and
+        // the debugger is let go. Once that has happened nothing below applies:
+        // the probes would only find a process that is no longer debugged.
+        if let region = Region.held {
+            needsSplitWX = true
+            status = .available(via: L("область от StikDebug, %d МБ", region.megabytes))
+            return status
+        }
+        if let why = Region.failure {
+            status = .unavailable(why)
+            return status
+        }
+        if !Region.attempted, isBeingDebugged() {
+            Region.attempted = true
+            switch Region.claim(megabytes: Settings.shared.tbSize) {
+            case .claimed(let region):
+                needsSplitWX = true
+                status = .available(via: L("область от StikDebug, %d МБ", region.megabytes))
+                return status
+            case .failed(let why):
+                status = .unavailable(why)
+                return status
+            case .legacyScript:
+                // legacy.js, or no script at all: the old way below, with the
+                // emulator asking the debugger itself when it starts.
+                break
+            }
+        }
+        #endif
 
         // MAP_JIT is the only meaningful test. It is granted for exactly two
         // reasons — the JIT entitlement, or the process being debugged — which
@@ -207,12 +249,137 @@ enum JIT {
             status = .unavailable(L("включите JIT (StikDebug) и вернитесь в приложение"))
         }
 
-        if status != previous {
-            switch status {
-            case .available(let how):    LogCapture.shared.note(L("JIT: доступен (%@)", how))
-            case .unavailable(let why):  LogCapture.shared.note(L("JIT: НЕДОСТУПЕН — %@", why))
-            }
-        }
         return status
+    }
+}
+
+#if os(iOS)
+@_silgen_name("inferno_jit26_claim")
+private func inferno_jit26_claim(_ size: UInt64,
+                                 _ keepAttached: Int32,
+                                 _ rw: UnsafeMutablePointer<UInt64>,
+                                 _ rx: UnsafeMutablePointer<UInt64>,
+                                 _ route: UnsafeMutablePointer<Int32>) -> Int32
+
+extension JIT {
+    /// InfernoPatch: the translation buffer, claimed from StikDebug at launch.
+    ///
+    /// Upstream asked the debugger for it from inside qemu_init, when the
+    /// machine started. On iOS 26 that went wrong two ways. iOS suspends
+    /// StikDebug soon after it hands the foreground back, and a brk to a
+    /// suspended debugger stops the whole app with nothing in the log. And the
+    /// debugger stayed attached for the whole session, so every later signal
+    /// (QEMU kicks its vCPU threads with one) waited on it too.
+    ///
+    /// So the region is taken here, while the attach is fresh. Either
+    /// StikDebug script works: the universal protocol (`inferno-jit.js`, or
+    /// StikDebug's own universal.js), or legacy.js as upstream's README has
+    /// it. StikDebug is detached as soon as the region is held. The pages
+    /// stay executable, and the emulator is handed them through the environment
+    /// (`INFERNO_JIT_RW`, `INFERNO_JIT_RX`, `INFERNO_JIT_SIZE`).
+    struct Region {
+        let rw: UInt64
+        let rx: UInt64
+        let megabytes: Int
+
+        enum Outcome {
+            case claimed(Region)
+            case failed(String)
+            /// Nothing answered the trap: no script is running.
+            case legacyScript
+        }
+
+        fileprivate(set) static var held: Region?
+        fileprivate(set) static var failure: String?
+        fileprivate static var attempted = false
+
+        /// Leave StikDebug attached after the claim. Only for debugging: an
+        /// attached debugger that iOS has suspended is what froze the app.
+        static var keepDebuggerAttached: Bool {
+            get { UserDefaults.standard.bool(forKey: "jit26.keepDebuggerAttached") }
+            set { UserDefaults.standard.set(newValue, forKey: "jit26.keepDebuggerAttached") }
+        }
+
+        /// One trap does it, whichever script StikDebug is running: legacy.js
+        /// answers exactly one brk #0x69 and then detaches, so a separate
+        /// probe would use it up. See Native/jit26.c.
+        fileprivate static func claim(megabytes: Int) -> Outcome {
+            LogCapture.shared.note(L("JIT: прошу у StikDebug %d МБ исполняемой памяти", megabytes))
+            var rw: UInt64 = 0
+            var rx: UInt64 = 0
+            var route: Int32 = 0
+            let keep = keepDebuggerAttached
+            let rc = inferno_jit26_claim(UInt64(megabytes) << 20, keep ? 1 : 0, &rw, &rx, &route)
+            if rc == 1 {
+                LogCapture.shared.note(L("JIT: StikDebug не ответил — старый путь"))
+                return .legacyScript
+            }
+            guard rc == 0 else {
+                let why: String
+                switch rc {
+                case 2:  why = L("StikDebug ответил, но не выделил память")
+                case 3:  why = L("не удалось сделать записываемую копию области (vm_remap)")
+                case 4:  why = L("область получена, но код в ней не исполняется")
+                default: why = L("ошибка %d", Int(rc))
+                }
+                failure = why + L(". Перезапустите приложение через StikDebug.")
+                return .failed(failure!)
+            }
+            let region = Region(rw: rw, rx: rx, megabytes: megabytes)
+            held = region
+            LogCapture.shared.note(String(format: "JIT: rw 0x%llx rx 0x%llx, %d MB, %@", rw, rx, megabytes,
+                                          route == 2 ? "legacy.js" : "universal"))
+            if route == 1 && keep {
+                LogCapture.shared.note(L("JIT: отладчик оставлен подключённым (параметры)"))
+            } else {
+                LogCapture.shared.note(L("JIT: область получена, StikDebug отключён"))
+            }
+            return .claimed(region)
+        }
+    }
+
+    /// Hands the app to StikDebug, which relaunches it attached and runs the
+    /// bundled script. The script goes inline, so nothing has to be assigned
+    /// to the app in StikDebug first.
+    @MainActor
+    static func launchThroughStikDebug() {
+        guard let id = Bundle.main.bundleIdentifier else { return }
+        var url = "stikjit://enable-jit?bundle-id=\(id)"
+        if let path = Bundle.main.path(forResource: "inferno-jit", ofType: "js"),
+           let script = try? String(contentsOfFile: path, encoding: .utf8) {
+            let encoded = Data(script.utf8).base64EncodedString()
+                .replacingOccurrences(of: "+", with: "-")
+                .replacingOccurrences(of: "/", with: "_")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "="))
+            url += "&script-data=\(encoded)"
+        }
+        guard let target = URL(string: url) else { return }
+        LogCapture.shared.note(L("JIT: открываю StikDebug"))
+        UIApplication.shared.open(target) { opened in
+            if !opened { LogCapture.shared.note(L("JIT: StikDebug не установлен")) }
+        }
+    }
+
+    /// What the emulator needs to find the region. Empty when there is none.
+    static var regionEnvironment: [String: String] {
+        guard let region = Region.held else { return [:] }
+        return [
+            "INFERNO_JIT_RW": String(format: "0x%llx", region.rw),
+            "INFERNO_JIT_RX": String(format: "0x%llx", region.rx),
+            "INFERNO_JIT_SIZE": String(UInt64(region.megabytes) << 20),
+        ]
+    }
+}
+#endif
+
+extension JIT {
+    /// The translation buffer the emulator will actually be given. Once a
+    /// region is held, it cannot grow: a bigger buffer chosen in Settings
+    /// afterwards would need a second claim, and the debugger is gone by then.
+    static func translationBufferSize(_ wanted: Int) -> Int {
+        #if os(iOS)
+        if let region = Region.held, wanted > region.megabytes { return region.megabytes }
+        #endif
+        return wanted
     }
 }

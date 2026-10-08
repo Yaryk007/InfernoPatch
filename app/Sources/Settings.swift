@@ -166,6 +166,9 @@ final class Settings: ObservableObject {
         // device tree nodes cost boot time and idle CPU, so a machine started without sound carries none
         // of them.
         if guestAudio { env["INFERNO_AUDIO"] = "1" }
+        #if os(iOS)
+        env.merge(JIT.regionEnvironment) { _, region in region }
+        #endif
         return env
     }
 
@@ -955,6 +958,21 @@ private struct DiagnosticsSettings: View {
                        Settings.shared.cores, Settings.shared.memory))
             }
             .font(.footnote)
+
+            #if os(iOS)
+            Section {
+                Button(L("Запустить через StikDebug"), systemImage: "bolt.fill") {
+                    JIT.launchThroughStikDebug()
+                }
+                Toggle(L("Не отключать отладчик"), isOn: Binding(
+                    get: { JIT.Region.keepDebuggerAttached },
+                    set: { JIT.Region.keepDebuggerAttached = $0 }))
+            } header: {
+                Text("iOS 26 JIT")
+            } footer: {
+                Text(L("Приложение перезапустится под StikDebug со своим скриптом (inferno-jit.js), сразу возьмёт память для транслятора и отпустит отладчик. Оставлять отладчик подключённым стоит только для отладки: когда iOS приостанавливает StikDebug, приложение замирает."))
+            }
+            #endif
 
             Section {
                 Button(L("Проверить JIT заново"), systemImage: "arrow.clockwise") {

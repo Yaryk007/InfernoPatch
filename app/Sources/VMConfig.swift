@@ -389,7 +389,7 @@ struct VMConfig {
         // process is allowed to do when MAP_JIT is refused.
         let accel = virtualization
             ? "hvf"
-            : "tcg,thread=multi,tb-size=\(tbSize)" + (JIT.needsSplitWX ? ",split-wx=on" : "")
+            : "tcg,thread=multi,tb-size=\(JIT.translationBufferSize(tbSize))" + (JIT.needsSplitWX ? ",split-wx=on" : "")
 
         var argv = [
             "qemu-system-aarch64",
