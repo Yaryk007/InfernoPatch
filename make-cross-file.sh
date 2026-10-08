@@ -36,6 +36,8 @@ ar         = '$BIN/ar'
 strip      = '$BIN/strip'
 ranlib     = '$BIN/ranlib'
 pkg-config = 'pkg-config'
+# libyuv is a CMake subproject; in a cross build meson only uses what is listed here.
+cmake      = 'cmake'
 
 [built-in options]
 c_args        = [$FLAGS, '-I$PREFIX/include']
