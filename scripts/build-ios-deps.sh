@@ -12,7 +12,7 @@
 # Versions are pinned to what sits in the author's working prefix:
 #   zlib 1.3.1, GMP 6.3.0, nettle 3.10.2 (+hogweed), libtasn1 4.20.0,
 #   libpng 1.6.58, pixman 0.44.2, glib 2.84.3 (with its own libffi/pcre2/libintl),
-#   libslirp 4.9.1, libucontext, lzfse.
+#   libslirp 4.9.1, libucontext, lzfse, lz4 1.10.0.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
@@ -195,6 +195,14 @@ fetch lzfse.tar.gz \
 untar lzfse.tar.gz lzfse
 make -C lzfse -j"$JOBS" CC="$CC" INSTALL_PREFIX="$PREFIX"
 make -C lzfse install INSTALL_PREFIX="$PREFIX"
+
+# ── lz4 (the emulator's USB code needs it since the fork's later commits) ──
+fetch lz4.tar.gz \
+    "https://github.com/lz4/lz4/releases/download/v1.10.0/lz4-1.10.0.tar.gz"
+untar lz4.tar.gz lz4
+# Static only, like everything else here; install also writes liblz4.pc.
+make -C lz4/lib -j"$JOBS" CC="$CC" BUILD_SHARED=no liblz4.a liblz4.pc
+make -C lz4/lib install CC="$CC" BUILD_SHARED=no PREFIX="$PREFIX"
 
 echo
 echo "==> Done. Contents of $PREFIX/lib:"
